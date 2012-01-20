@@ -1,3 +1,14 @@
+/*
+
+Check http://en.wikipedia.org/wiki/Consumer_IR for frequency tables!! 
+
+Or perhaps the Pronto format:
+http://www.remotecentral.com/features/irdisp2.htm
+
+*/
+
+
+
 #include <IRremote.h>
 #include <IRremoteInt.h>
 #include "bitlash.h"
@@ -33,6 +44,7 @@ int toggle = 0; // The RC5/6 toggle state
 
 // Stores the code for later playback
 // Most of this code is just logging
+
 void storeCode(decode_results *results) {
   codeType = results->decode_type;
   int count = results->rawlen;
@@ -220,7 +232,6 @@ numvar wipe(void) {
 }
 
 void setup(void) {
-
 	// initialize bitlash and set primary serial port baud
 	// print startup banner and run the startup macro
 	initBitlash(57600);
@@ -241,6 +252,7 @@ unsigned long t = 0;
 void loop(void) {
   if (t++ < FLASHER){
     digitalWrite(STATUS_PIN, HIGH);
+#ifdef bogus
     if (t < 2) {
       Serial.print("rawlen: ");
       Serial.println(irparams.rawlen,DEC);
@@ -249,6 +261,7 @@ void loop(void) {
       Serial.print("rcvstate: ");
       Serial.println(irparams.rcvstate,DEC);
     }
+#endif
   } else {
     digitalWrite(STATUS_PIN, LOW);
   }
@@ -257,12 +270,10 @@ void loop(void) {
   }
 
   runBitlash();
-  // See a code?  Store it in the temp location!
+  // Got a code?  Store it in the temp location.
   if (irrecv.decode(&results)) {
-    digitalWrite(STATUS_PIN, HIGH);
-    storeCode(&results);
+    store(&results);
     irrecv.resume(); // resume receiver
-    digitalWrite(STATUS_PIN, LOW);
   }
 }
 
