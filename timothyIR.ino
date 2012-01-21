@@ -14,16 +14,19 @@ http://www.remotecentral.com/features/irdisp2.htm
 #include "eeprom_any.h"
 #include <avr/eeprom.h>
 
-#define NUMPIRS 2
-// 3, 5, 6, 9, 10, 11 -- Infrared LEDs
-// 2, 4, 7, 8, 12, 13 -- PIRs
-int pirPins[NUMPIRS] = {2,4};
-int pirState[NUMPIRS] = {LOW,LOW};             // we start, assuming no motion detected
-int pirval[NUMPIRS] = {0,0};
+#define NUMPIRS 3
+// PIRS are on analog pins A0-A5
+int pirPins[NUMPIRS] = {A0,A1,A2};
+int pirState[NUMPIRS] = {LOW,LOW,LOW};             // we start, assuming no motion detected
+int pirval[NUMPIRS] = {0,0,0};
+int PIRenable = 0;  // Detectors are on by default.
+
+#define NUMLEDS 6
+// LEDs are on 2, 4, 5, 6, 7, 8
+int LEDpins[NUMLEDS] = {2, 4, 5, 6, 7, 8};
+
 int RECV_PIN = 11;  // IR detector pin
 int STATUS_PIN = 13; // Pin with visible light LED on it.
-
-int PIRenable = 1;  // On by default.
 
 IRrecv irrecv(RECV_PIN); // IR receiver
 IRsend irsend;           // IR sending interface
@@ -148,9 +151,9 @@ numvar store(void) {
   return (numvar)1;
 }
 
+
 void sendCode() {
   numvar arg;
-  int i;
   arg = getarg(0);
   if (arg != 1) {
     Serial.println("send takes a single argument: the code number to blast.");
@@ -162,7 +165,14 @@ void sendCode() {
     return;
   }
   arg--;
+  blastCode(arg);
+}
+
+void blastCode(int arg) {// Arg is 0 - 5
+  int i;
   int Eloc = arg*SLOTSIZE;
+
+  LEDselect(arg);
   codeType = EEPROM.read(Eloc++);
   codeLen = EEPROM.read(Eloc++);
 
@@ -207,6 +217,7 @@ void sendCode() {
     irsend.sendRaw(rawCodes, codeLen, 38);
     Serial.println("Sent raw");
   }
+  irrecv.resume(); // resume receiver
 }
 
 
@@ -266,17 +277,33 @@ numvar wipe(void) {
   return (numvar)1;
 }
 
+void LEDselect(int led) {
+  for(int i=0; i<NUMLEDS; i++) { 
+    if (i==led) {
+      digitalWrite(LEDpins[i], (i==led)?LOW:HIGH);
+      Serial.print("(");
+      Serial.print(i,DEC);
+      Serial.print(")");
+      Serial.print("Setting pin ");
+      Serial.print(LEDpins[i],DEC);
+      Serial.println(" to LOW");
+    } else {
+      digitalWrite(LEDpins[i], HIGH);
+    }
+  }
+}
 
 void checkMotion(int unit){
-  pirval[unit] = digitalRead(pirPins[unit]);  // read input value
+  pirval[unit] = analogRead(pirPins[unit]);  // read input value
 
-  if (pirval[unit] == HIGH) {            // check if the input is HIGH
+  if (pirval[unit] > 0) {            // check if the input is HIGH
     if (pirState[unit] == LOW) {
       // we have just turned on
       Serial.print("Motion detected on unit ");
       Serial.print(unit+1,DEC);
       Serial.println("");
-      
+      // Trigger a send!
+      blastCode(unit);
       // We only want to print on the output change, not state
       pirState[unit] = HIGH;
     }
@@ -292,7 +319,6 @@ void checkMotion(int unit){
   }
 }
 
-
 numvar disablePIR(void) {
   PIRenable = 0;
 }
@@ -300,8 +326,6 @@ numvar disablePIR(void) {
 numvar enablePIR(void) {
   PIRenable = 1;
 }
-
-
 
 void setup(void) {
 	// initialize bitlash and set primary serial port baud
@@ -318,18 +342,19 @@ void setup(void) {
 
 	irrecv.enableIRIn(); // Start the receiver
         pinMode(STATUS_PIN, OUTPUT);
+	
+        for(int i=0; i<NUMLEDS; i++) { // Enable and delselect IR LEDs
+          pinMode(LEDpins[i], OUTPUT);
+	  digitalWrite(LEDpins[i], HIGH);
+	}
 
 	// Set up the PIRs
         for(int i=0;i<NUMPIRS;i++)
-          pinMode(i, INPUT);     // declare sensor as input
-
+          pinMode(pirPins[i], INPUT);     // declare sensor as input
 }
 
-
-
-
-#define FLASHER 10000 
-#define DOUBLE_FLASHER 60000 
+#define FLASHER 1000 
+#define DOUBLE_FLASHER 6000 
 
 unsigned long t = 0;
 void loop(void) {
