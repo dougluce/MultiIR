@@ -19,7 +19,7 @@ http://www.remotecentral.com/features/irdisp2.htm
 int pirPins[NUMPIRS] = {A0,A1,A2};
 int pirState[NUMPIRS] = {LOW,LOW,LOW};             // we start, assuming no motion detected
 int pirval[NUMPIRS] = {0,0,0};
-int PIRenable = 0;  // Detectors are on by default.
+int PIRenable = 1;  // Detectors are on by default.
 
 #define NUMLEDS 6
 // LEDs are on 2, 4, 5, 6, 7, 8
@@ -168,19 +168,20 @@ void sendCode() {
   blastCode(arg);
 }
 
-void blastCode(int arg) {// Arg is 0 - 5
+void blastCode(int unit) {// Unit is 0 - 5
   int i;
-  int Eloc = arg*SLOTSIZE;
+  int Eloc = unit*SLOTSIZE;
 
-  LEDselect(arg);
+  LEDselect(unit);
   codeType = EEPROM.read(Eloc++);
   codeLen = EEPROM.read(Eloc++);
+  cli(); // Ditch interrupts for now
 
   if (codeType == NEC) {
     Eloc += EEPROM_readAnything(Eloc, codeValue);
     irsend.sendNEC(codeValue, codeLen);
     Serial.print("Sent NEC ");
-    Serial.println(codeValue, HEX);
+    Serial.print(codeValue, HEX);
   } 
   else if (codeType == SONY) {
     Eloc += EEPROM_readAnything(Eloc, codeValue);
@@ -217,6 +218,8 @@ void blastCode(int arg) {// Arg is 0 - 5
     irsend.sendRaw(rawCodes, codeLen, 38);
     Serial.println("Sent raw");
   }
+  sei();
+  irrecv.enableIRIn(); // Start the receiver
   irrecv.resume(); // resume receiver
 }
 
@@ -280,10 +283,7 @@ numvar wipe(void) {
 void LEDselect(int led) {
   for(int i=0; i<NUMLEDS; i++) { 
     if (i==led) {
-      digitalWrite(LEDpins[i], (i==led)?LOW:HIGH);
-      Serial.print("(");
-      Serial.print(i,DEC);
-      Serial.print(")");
+      digitalWrite(LEDpins[i], LOW);
       Serial.print("Setting pin ");
       Serial.print(LEDpins[i],DEC);
       Serial.println(" to LOW");
@@ -331,7 +331,7 @@ void setup(void) {
 	// initialize bitlash and set primary serial port baud
 	// print startup banner and run the startup macro
 	initBitlash(57600);
-
+	//Serial.begin(57600);
         addBitlashFunction("store", (bitlash_function) store);
         addBitlashFunction("send", (bitlash_function) sendCode);
         addBitlashFunction("wipe", (bitlash_function) wipe);
@@ -371,15 +371,17 @@ void loop(void) {
   // Check for commands.
   runBitlash();
 
-  // Got a code?  Store it in the temp location.
-  if (irrecv.decode(&results)) {
-    storeCode(&results);
-    irrecv.resume(); // resume receiver
-  }
-
   // Do we see a motion detector triggered?
   if (PIRenable) {
     for(int i=0;i<NUMPIRS;i++)
       checkMotion(i);
   }
+
+  // Got a code?  Store it in the temp location.
+  if (irrecv.decode(&results)) {
+    storeCode(&results);
+    irrecv.enableIRIn(); // Start the receiver
+    irrecv.resume(); // resume receiver
+  }
+
 }
