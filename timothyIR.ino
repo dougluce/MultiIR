@@ -7,13 +7,12 @@ http://www.remotecentral.com/features/irdisp2.htm
 
 */
 
-
-
 #include <IRremote.h>
 #include <IRremoteInt.h>
 #include "bitlash.h"
 #include <EEPROM.h>
 #include "eeprom_any.h"
+#include <avr/eeprom.h>
 
 int RECV_PIN = 11;  // IR detector pin
 int STATUS_PIN = 13; // Pin with visible light LED on it.
@@ -75,6 +74,7 @@ void storeCode(decode_results *results) {
       if (results->value == REPEAT) {
         // Don't record a NEC repeat value as that's useless.
         Serial.println("repeat; ignoring.");
+	Serial.print("> "); // Restore prompt
         return;
       }
     } 
@@ -96,6 +96,7 @@ void storeCode(decode_results *results) {
     codeValue = results->value;
     codeLen = results->bits;
   }
+  Serial.print("> "); // Restore prompt
 }
 
 
@@ -131,7 +132,7 @@ numvar store(void) {
   } else {
     Serial.print("Storing code type ");
     Serial.print(codeType, DEC);
-    Eloc += EEPROM_writeAnything(Eloc,codeValue);
+    EEPROM_writeAnything(Eloc,codeValue);
   } 
   Serial.println("...done.");
   
@@ -152,22 +153,25 @@ void sendCode() {
     Serial.println("Specify a slot, 1-6");
     return;
   }
-
+  arg--;
   int Eloc = arg*SLOTSIZE;
   codeType = EEPROM.read(Eloc++);
   codeLen = EEPROM.read(Eloc++);
 
   if (codeType == NEC) {
+    Eloc += EEPROM_readAnything(Eloc, codeValue);
     irsend.sendNEC(codeValue, codeLen);
     Serial.print("Sent NEC ");
     Serial.println(codeValue, HEX);
   } 
   else if (codeType == SONY) {
+    Eloc += EEPROM_readAnything(Eloc, codeValue);
     irsend.sendSony(codeValue, codeLen);
     Serial.print("Sent Sony ");
     Serial.println(codeValue, HEX);
   } 
   else if (codeType == RC5 || codeType == RC6) {
+    Eloc += EEPROM_readAnything(Eloc, codeValue);
     // Flip the toggle bit for a new button press
     toggle = 1 - toggle;
     // Put the toggle bit into the code to send
@@ -179,20 +183,43 @@ void sendCode() {
       irsend.sendRC5(codeValue, codeLen);
     } 
     else {
+      Eloc += EEPROM_readAnything(Eloc, codeValue);
       irsend.sendRC6(codeValue, codeLen);
       Serial.print("Sent RC6 ");
       Serial.println(codeValue, HEX);
     }
   } 
   else if (codeType == UNKNOWN /* i.e. raw */) {
+    Eloc += EEPROM_readAnything(Eloc, codeValue);
     for (i=1; i<codeLen; i++) {
-      Eloc += EEPROM_writeAnything(Eloc,rawCodes[i]);
+      Eloc += EEPROM_readAnything(Eloc,rawCodes[i]);
     }
 
     // Assume 38 KHz
     irsend.sendRaw(rawCodes, codeLen, 38);
     Serial.println("Sent raw");
   }
+}
+
+
+// Show system state
+numvar state(void) {
+  Serial.print("rcvstate: ");
+  Serial.print(irparams.rcvstate,DEC);
+  Serial.println("");
+
+  Serial.print("recvpin: ");
+  Serial.print(irparams.recvpin,DEC);
+  Serial.println("");
+  Serial.print("blinkflag: ");
+  Serial.print(irparams.blinkflag,DEC);
+  Serial.println("");
+  Serial.print("timer: ");
+  Serial.print(irparams.timer,DEC);
+  Serial.println("");
+  Serial.print("rawlen: ");
+  Serial.print(irparams.rawlen,DEC);
+  Serial.println("");
 }
 
 
@@ -240,6 +267,7 @@ void setup(void) {
         addBitlashFunction("send", (bitlash_function) sendCode);
         addBitlashFunction("wipe", (bitlash_function) wipe);
         addBitlashFunction("dump", (bitlash_function) dump);
+        addBitlashFunction("state", (bitlash_function) state);
 
 	irrecv.enableIRIn(); // Start the receiver
         pinMode(STATUS_PIN, OUTPUT);
@@ -250,18 +278,9 @@ void setup(void) {
 
 unsigned long t = 0;
 void loop(void) {
+  // Light-flashing code
   if (t++ < FLASHER){
     digitalWrite(STATUS_PIN, HIGH);
-#ifdef bogus
-    if (t < 2) {
-      Serial.print("rawlen: ");
-      Serial.println(irparams.rawlen,DEC);
-      Serial.print("timer: ");
-      Serial.println(irparams.timer,DEC);
-      Serial.print("rcvstate: ");
-      Serial.println(irparams.rcvstate,DEC);
-    }
-#endif
   } else {
     digitalWrite(STATUS_PIN, LOW);
   }
@@ -269,12 +288,12 @@ void loop(void) {
     t = 0;
   }
 
+  // Check for commands.
   runBitlash();
+
   // Got a code?  Store it in the temp location.
   if (irrecv.decode(&results)) {
-    store(&results);
+    storeCode(&results);
     irrecv.resume(); // resume receiver
   }
 }
-
-
