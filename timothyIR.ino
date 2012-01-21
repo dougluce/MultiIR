@@ -14,8 +14,16 @@ http://www.remotecentral.com/features/irdisp2.htm
 #include "eeprom_any.h"
 #include <avr/eeprom.h>
 
+#define NUMPIRS 2
+// 3, 5, 6, 9, 10, 11 -- Infrared LEDs
+// 2, 4, 7, 8, 12, 13 -- PIRs
+int pirPins[NUMPIRS] = {2,4};
+int pirState[NUMPIRS] = {LOW,LOW};             // we start, assuming no motion detected
+int pirval[NUMPIRS] = {0,0};
 int RECV_PIN = 11;  // IR detector pin
 int STATUS_PIN = 13; // Pin with visible light LED on it.
+
+int PIRenable = 1;  // On by default.
 
 IRrecv irrecv(RECV_PIN); // IR receiver
 IRsend irsend;           // IR sending interface
@@ -258,6 +266,43 @@ numvar wipe(void) {
   return (numvar)1;
 }
 
+
+void checkMotion(int unit){
+  pirval[unit] = digitalRead(pirPins[unit]);  // read input value
+
+  if (pirval[unit] == HIGH) {            // check if the input is HIGH
+    if (pirState[unit] == LOW) {
+      // we have just turned on
+      Serial.print("Motion detected on unit ");
+      Serial.print(unit+1,DEC);
+      Serial.println("");
+      
+      // We only want to print on the output change, not state
+      pirState[unit] = HIGH;
+    }
+  } else {
+    if (pirState[unit] == HIGH){
+      // we have just turned of
+      Serial.print("Motion ended on unit ");
+      Serial.print(unit+1,DEC);
+      Serial.println("");
+      // We only want to print on the output change, not state
+      pirState[unit] = LOW;
+    }
+  }
+}
+
+
+numvar disablePIR(void) {
+  PIRenable = 0;
+}
+
+numvar enablePIR(void) {
+  PIRenable = 1;
+}
+
+
+
 void setup(void) {
 	// initialize bitlash and set primary serial port baud
 	// print startup banner and run the startup macro
@@ -268,10 +313,20 @@ void setup(void) {
         addBitlashFunction("wipe", (bitlash_function) wipe);
         addBitlashFunction("dump", (bitlash_function) dump);
         addBitlashFunction("state", (bitlash_function) state);
+        addBitlashFunction("disable", (bitlash_function) disablePIR);
+        addBitlashFunction("enable", (bitlash_function) enablePIR);
 
 	irrecv.enableIRIn(); // Start the receiver
         pinMode(STATUS_PIN, OUTPUT);
+
+	// Set up the PIRs
+        for(int i=0;i<NUMPIRS;i++)
+          pinMode(i, INPUT);     // declare sensor as input
+
 }
+
+
+
 
 #define FLASHER 10000 
 #define DOUBLE_FLASHER 60000 
@@ -295,5 +350,11 @@ void loop(void) {
   if (irrecv.decode(&results)) {
     storeCode(&results);
     irrecv.resume(); // resume receiver
+  }
+
+  // Do we see a motion detector triggered?
+  if (PIRenable) {
+    for(int i=0;i<NUMPIRS;i++)
+      checkMotion(i);
   }
 }
